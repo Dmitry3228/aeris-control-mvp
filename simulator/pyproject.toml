@@ -1,0 +1,11 @@
+[project]
+name = "aeris-simulator"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["paho-mqtt>=2,<3"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

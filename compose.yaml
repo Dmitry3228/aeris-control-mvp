@@ -1,0 +1,127 @@
+name: aeris-control
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2.0.20
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "127.0.0.1", "-t", "aeris/health", "-m", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 3s
+
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8.14.39-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USERNAME:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-aeris-local}
+    ports:
+      - "127.0.0.1:${AERIS_CLICKHOUSE_PORT:-8124}:8123"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user \"$$CLICKHOUSE_USER\" --password \"$$CLICKHOUSE_PASSWORD\" --query 'SELECT 1'"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      AERIS_DATABASE_URL: sqlite:////data/aeris.db
+      REDIS_URL: redis://redis:6379/0
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "8123"
+      CLICKHOUSE_USERNAME: ${CLICKHOUSE_USERNAME:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-aeris-local}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      AERIS_STALE_AFTER_SECONDS: ${AERIS_STALE_AFTER_SECONDS:-30}
+      AERIS_HISTORY_MAX_SPAN_DAYS: ${AERIS_HISTORY_MAX_SPAN_DAYS:-7}
+      AERIS_HISTORY_POINT_BUDGET: ${AERIS_HISTORY_POINT_BUDGET:-600}
+      AERIS_TELEMETRY_MAX_PAST_AGE_SECONDS: ${AERIS_TELEMETRY_MAX_PAST_AGE_SECONDS:-604800}
+      AERIS_TELEMETRY_MAX_FUTURE_SKEW_SECONDS: ${AERIS_TELEMETRY_MAX_FUTURE_SKEW_SECONDS:-30}
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "127.0.0.1:${AERIS_API_PORT:-4100}:4100"
+    volumes:
+      - backend_data:/data
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:4100/api/health',timeout=2)); assert data['status']=='ok'"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 15s
+
+  simulator:
+    build:
+      context: ./simulator
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      AERIS_BACKEND_URL: http://backend:4100
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      PYTHONUNBUFFERED: "1"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import pathlib,time; path=pathlib.Path('/tmp/aeris-simulator-ready'); assert path.exists() and time.time()-path.stat().st_mtime < 10"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 5s
+    stop_grace_period: 10s
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${AERIS_WEB_PORT:-3100}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/healthz"]
+      interval: 3s
+      timeout: 2s
+      retries: 20
+      start_period: 3s
+
+volumes:
+  backend_data:
+  clickhouse_data:
+  mosquitto_data:
+  redis_data:

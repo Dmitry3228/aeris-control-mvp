@@ -1,0 +1,12 @@
+{
+  "name": "aeris-control-delivery",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test tests/e2e/aeris-demo.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

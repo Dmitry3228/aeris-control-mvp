@@ -1,0 +1,35 @@
+[project]
+name = "aeris-control"
+version = "0.1.0"
+description = "Industrial HVAC monitoring domain service"
+requires-python = ">=3.12"
+dependencies = [
+  "anyio>=4,<4.12",
+  "clickhouse-connect>=0.8,<1",
+  "fastapi>=0.115,<0.116",
+  "paho-mqtt>=2,<3",
+  "pydantic>=2.10,<2.11",
+  "redis>=5,<6",
+  "SQLAlchemy>=2.0,<2.1",
+  "uvicorn>=0.32,<0.33",
+  "websockets>=13,<14",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.13,<2",
+  "pytest>=8.3,<9",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires Compose services"]
+
+[tool.mypy]
+files = ["app"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["clickhouse_connect"]
+ignore_missing_imports = true
